@@ -1,18 +1,11 @@
 import 'dart:convert';
+import 'package:chat_bot_app/bloc/chatbot.bloc.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:http/http.dart' as http;
 
-class ChatbotPage extends StatefulWidget {
+class ChatbotPage extends StatelessWidget {
   ChatbotPage({super.key});
-
-  @override
-  State<ChatbotPage> createState() => _ChatbotPageState();
-}
-
-class _ChatbotPageState extends State<ChatbotPage> {
-  List messages = [
-    {"message": "Hello 👋 \nHow can I help you?", "type": "assistant"},
-  ];
 
   TextEditingController queryController = TextEditingController();
   ScrollController scrollController = ScrollController();
@@ -42,50 +35,75 @@ class _ChatbotPageState extends State<ChatbotPage> {
       ),
       body: Column(
         children: [
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              child: ListView.builder(
-                controller: scrollController,
-                itemCount: messages.length,
-                itemBuilder: (context, index) {
-                  bool isUser = messages[index]['type'] == "user";
-                  return Align(
-                    alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-                    child: Container(
-                      margin: EdgeInsets.symmetric(vertical: 4),
-                      padding: EdgeInsets.all(12),
-                      constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
-                      decoration: BoxDecoration(
-                        color: isUser
-                            ? const Color.fromARGB(255, 220, 255, 220)
-                            : const Color.fromARGB(255, 240, 240, 240),
-                        borderRadius: BorderRadius.only(
-                          topLeft: Radius.circular(16),
-                          topRight: Radius.circular(16),
-                          bottomLeft: Radius.circular(isUser ? 16 : 0),
-                          bottomRight: Radius.circular(isUser ? 0 : 16),
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black12,
-                            blurRadius: 2,
-                            offset: Offset(0, 1),
-                          )
-                        ],
-                      ),
-                      child: Text(
-                        messages[index]['message'],
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.black87,
-                        ),
-                      ),
+          BlocBuilder<ChatbotBloc,ChatBotState>(
+            builder: (context, state) {
+              if (state is ChatBotPenddingState){
+                return CircularProgressIndicator();
+              }
+              else if (state is ChatBotErrorState){
+                return Column(
+                  children: [
+                    Text(state.errorMessage,style: TextStyle(color: Colors.red),),
+                    ElevatedButton(
+                      onPressed: () {
+                        ChatBotEvent evt = context.read<ChatbotBloc>().lastchatBotEvent;
+                        context.read<ChatbotBloc>().add(evt);
+                      },
+                      child: Text("Retry",))
+                  ],
+                );
+              }
+              else if(state is ChatBotSuccessState || state is ChatBotInitialState){
+                return Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    child: ListView.builder(
+                      controller: scrollController,
+                      itemCount: state.messages.length,
+                      itemBuilder: (context, index) {
+                        bool isUser = state.messages[index].type == "user";
+                        return Align(
+                          alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+                          child: Container(
+                            margin: EdgeInsets.symmetric(vertical: 4),
+                            padding: EdgeInsets.all(12),
+                            constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+                            decoration: BoxDecoration(
+                              color: isUser
+                                  ? const Color.fromARGB(255, 220, 255, 220)
+                                  : const Color.fromARGB(255, 240, 240, 240),
+                              borderRadius: BorderRadius.only(
+                                topLeft: Radius.circular(16),
+                                topRight: Radius.circular(16),
+                                bottomLeft: Radius.circular(isUser ? 16 : 0),
+                                bottomRight: Radius.circular(isUser ? 0 : 16),
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black12,
+                                  blurRadius: 2,
+                                  offset: Offset(0, 1),
+                                )
+                              ],
+                            ),
+                            child: Text(
+                              state.messages[index].message,
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
                     ),
-                  );
-                },
-              ),
-            ),
+                  ),
+                );
+              }
+              else{
+                return Container();
+              }
+            },
           ),
           Divider(height: 1, thickness: 1, color: Colors.grey[300]),
           Padding(
@@ -114,44 +132,9 @@ class _ChatbotPageState extends State<ChatbotPage> {
                   child: IconButton(
                     icon: Icon(Icons.send, color: Colors.white),
                     onPressed: () {
-                      String query = queryController.text.trim();
-                      if (query.isEmpty) return;
-
-                      setState(() {
-                        messages.add({"message": query, "type": "user"});
-                      });
-
-                      queryController.text = "";
-
-                      var MetaAiLLMUri = Uri.parse("https://openrouter.ai/api/v1/chat/completions");
-                      Map<String, String> headers = {
-                        "Content-Type": 'application/json',
-                        "Authorization": 'Bearer ######',
-                      };
-
-                      var prompt = {
-                        "model": "meta-llama/llama-4-maverick:free",
-                        "messages": [
-                          {
-                            "role": "user",
-                            "content": query,
-                          }
-                        ]
-                      };
-
-                      http.post(MetaAiLLMUri, headers: headers, body: json.encode(prompt)).then((resp) {
-                        var llmResponse = json.decode(resp.body);
-                        if (llmResponse["choices"] == null) {
-                          print("Erreur détectée dans la réponse !");
-                          return;
-                        }
-
-                        String responseContent = llmResponse["choices"][0]['message']['content'];
-                        setState(() {
-                          messages.add({"message": responseContent, "type": "assistant"});
-                        });
-                        scrollToBottom();
-                      });
+                      String query = queryController.text;
+                      context.read<ChatbotBloc>().add(AskLLMEvent(query: query));
+                      queryController.text="";
                     },
                   ),
                 )
